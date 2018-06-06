@@ -1,0 +1,229 @@
+'
+' Calls the Today() function to get todays date
+' Calls the LatestDay() function to get the last entry's date
+' Calculates the number of days it needs to import
+' Calls the Import() function
+' Calls the UpdateChart() function
+'
+Sub UpdateAll()
+
+    Dim nextDate As Long
+
+    DaysBehind = Today() - LatestDay()
+
+    For i = 1 To DaysBehind
+        nextDate = Today() - DaysBehind + i
+
+        Call Import(nextDate)
+
+    Next i
+    
+    Call UpdateChart
+
+End Sub
+
+'
+' User requires \\qlikapp-ccc-02\QVDOCS\Data\DA to be mapped to Y:\
+' Application.ScreenUpdating = False creates a static screen while everything updates
+' Opens exported data workbook and copies data to Source Data
+' Calls UpdateMetrics() and passes the starting and ending row locations of the copied data and the current file date
+'
+Sub Import(nextDate As Long)
+
+    Dim firstRow As Integer
+    Dim lastRow As Integer
+    Dim file As String
+    Dim importedName As String
+    
+    file = "Y:\Outbound Commands Status_"
+    Application.ScreenUpdating = False
+    Workbooks.Open Filename:=file & nextDate & "*", UpdateLinks:=True, ReadOnly:=True
+    importedName = "Outbound Commands Status_" & nextDate & "-080000.csv"
+    ActiveWindow.Visible = False
+    firstRow = Workbooks(ThisWorkbook.Name).Worksheets("Source Data").Cells(Rows.Count, "B").End(xlUp).Row + 1
+    Workbooks(importedName).Worksheets(1).Range("A2:M9999").Copy Destination:=Workbooks(ThisWorkbook.Name).Worksheets("Source Data").Cells(firstRow, "B")
+    lastRow = Workbooks(ThisWorkbook.Name).Worksheets("Source Data").Cells(Rows.Count, "B").End(xlUp).Row
+    Workbooks(ThisWorkbook.Name).Worksheets("Source Data").Range("A" & firstRow & ":A" & lastRow).Value = nextDate
+    Workbooks(importedName).Close SaveChanges:=False
+    Worksheets("Metrics").Select
+
+    Call UpdateMetrics(firstRow, lastRow, nextDate)
+
+    Worksheets("Graphics").Select
+    Application.ScreenUpdating = True
+
+End Sub
+
+Sub ImportSpecific()
+
+    Dim selDate As String
+    Dim verDate As Long
+
+    selDate = Worksheets(1).Range("Q7").Value
+    Worksheets(1).Range("Q7").Value = "YYYYMMDD"
+
+    If CheckInput(selDate) = True Then
+        verDate = selDate
+
+        Call Import(verDate)
+
+        Worksheets("Source Data").Columns("A:N").Sort key1:=Worksheets("Source Data").Range("K:K"), order1:=xlAscending, Header:=xlYes
+        Worksheets("Metrics").Columns("A:M").Sort key1:=Worksheets("Metrics").Range("B:B"), order1:=xlAscending, Header:=xlYes
+    End If
+
+End Sub
+
+Sub UpdateMetrics(firstRow As Integer, lastRow As Integer, selDate As Long)
+
+    prev = Worksheets("Metrics").Cells(Rows.Count, "A").End(xlUp).Row
+    Workbooks(ThisWorkbook.Name).Worksheets("Metrics").Range("A" & prev & ":M" & prev).Select
+    Selection.AutoFill Destination:=Range("A" & prev & ":M" & prev + 1), Type:=xlFillDefault
+    mrow = Workbooks(ThisWorkbook.Name).Worksheets("Metrics").Cells(Rows.Count, "A").End(xlUp).Row
+    Workbooks(ThisWorkbook.Name).Worksheets("Metrics").Range("A" & mrow).Value = selDate
+    ' Workbooks(ThisWorkbook.Name).Worksheets("Metrics").Range("B" & mrow).Value = formatDate(selDate)
+    Application.CutCopyMode = False
+
+End Sub
+
+Sub UpdateChart()
+
+    Application.ScreenUpdating = False
+    lastRow = Workbooks(ThisWorkbook.Name).Worksheets("Metrics").Cells(Rows.Count, "B").End(xlUp).Row
+    firstRow = Workbooks(ThisWorkbook.Name).Worksheets("Metrics").Cells(Rows.Count, "B").End(xlUp).Row - 30
+
+    With Sheets("Graphics").ChartObjects(1)
+        .chart.SeriesCollection(1).XValues = "=Metrics!B" & firstRow & ": B" & lastRow
+        .chart.SeriesCollection(1).Values = "=Metrics!C" & firstRow & ": C" & lastRow
+        .chart.SeriesCollection(2).XValues = "=Metrics!B" & firstRow & ": B" & lastRow
+        .chart.SeriesCollection(2).Values = "=Metrics!E" & firstRow & ": E" & lastRow
+    End With
+
+    Application.ScreenUpdating = True
+
+End Sub
+
+Sub RangedUpdateChart()
+
+    startdate = Worksheets(1).Range("Q3").Value
+    Worksheets(1).Range("Q3").Value = "YYYYMMDD"
+    stopdate = Worksheets(1).Range("Q4").Value
+    Worksheets(1).Range("Q4").Value = "YYYYMMDD"
+    startrow = Worksheets("Metrics").Range("A:A").Find(startdate).Row
+    stoprow = Worksheets("Metrics").Range("A:A").Find(stopdate).Row
+
+    With Sheets("Graphics").ChartObjects(1)
+        .chart.SeriesCollection(1).XValues = "=Metrics!B" & startrow & ": B" & stoprow
+        .chart.SeriesCollection(1).Values = "=Metrics!C" & startrow & ": C" & stoprow
+        .chart.SeriesCollection(2).XValues = "=Metrics!B" & startrow & ": B" & stoprow
+        .chart.SeriesCollection(2).Values = "=Metrics!E" & startrow & ": E" & stoprow
+    End With
+
+End Sub
+
+Sub DelDups(selDate As Long)
+
+Dim strFirstAddress As String
+Dim searchlast As Range
+Dim search As Range
+
+Set search = Worksheets("Source Data").Range("A:A")
+Set searchlast = search.Cells(search.Cells.Count)
+
+Set rngFindValue = Worksheets("Source Data").Range("A:A").Find(selDate, searchlast, xlValues)
+If Not rngFindValue Is Nothing Then
+  strFirstAddress = rngFindValue.Row
+  Do
+    Set rngFindValue = search.FindNext(rngFindValue)
+  Loop Until rngFindValue.Row = strFirstAddress
+    endrow = Application.WorksheetFunction.CountIf(Worksheets("Source Data").Range("A:A"), selDate)
+    stoprow = strFirstAddress + endrow - 1
+End If
+Worksheets("Source Data").Rows(strFirstAddress & ":" & stoprow).Delete
+End Sub
+
+Sub Cleanup()
+
+    Application.ScreenUpdating = False
+    Worksheets("Graphics").Activate
+    Worksheets("Graphics").Range("A1").Select
+    lastRow = Worksheets("Metrics").Cells(Rows.Count, "A").End(xlUp).Row
+    Worksheets("Metrics").Activate
+    Worksheets("Metrics").Range("A" & lastRow).Select
+    lastRow = Worksheets("Source Data").Cells(Rows.Count, "A").End(xlUp).Row
+    Worksheets("Source Data").Activate
+    Worksheets("Source Data").Range("A" & lastRow).Select
+    Worksheets("Graphics").Activate
+    Application.ScreenUpdating = True
+
+End Sub
+
+Function Today() As Long
+
+    DD = Day(Date)
+    MM = Month(Date)
+
+    If Len(DD) = 1 Then
+        DD = "0" & DD
+    End If
+
+    If Len(MM) = 1 Then
+        MM = "0" & MM
+    End If
+
+    YY = Year(Date)
+    Today = YY & MM & DD
+
+End Function
+
+Function LatestDay() As Long
+
+    LatestDay = Worksheets("Source Data").Cells(Rows.Count, 1).End(xlUp).Value
+
+End Function
+
+Function CheckInput(selectionDate As String) As Boolean
+
+    Dim YYXX As Integer
+    Dim MM As Integer
+    Dim DD As Integer
+
+    On Error GoTo eh
+
+    YYXX = Mid(selectionDate, 1, 1) & Mid(selectionDate, 2, 1)
+    MM = Mid(selectionDate, 5, 1) & Mid(selectionDate, 6, 1)
+    DD = Mid(selectionDate, 7, 1) & Mid(selectionDate, 8, 1)
+
+    If YYXX = 20 Then
+        If MM >= 1 And MM <= 12 Then
+            If DD >= 1 And DD <= 31 Then
+                CheckInput = True
+            Else
+                GoTo eh
+            End If
+        Else
+            GoTo eh
+        End If
+    Else
+        GoTo eh
+    End If
+
+Done:
+    Exit Function
+eh:
+    MsgBox "Please check your date format!"
+
+End Function
+
+Function formatDate(YYYYMMDD As Long) As String
+
+    Dim YYXX As Integer
+    Dim MM As Integer
+    Dim DD As Integer
+
+    YYYY = "20" & Mid(YYYYMMDD, 3, 1) & Mid(YYYYMMDD, 4, 1)
+    MM = Mid(YYYYMMDD, 5, 1) & Mid(YYYYMMDD, 6, 1)
+    DD = Mid(YYYYMMDD, 7, 1) & Mid(YYYYMMDD, 8, 1)
+    
+    formatDate = MM & "/" & DD & "/" & YYYY
+
+End Function
